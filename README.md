@@ -1,5 +1,5 @@
 
-  # Internship Application Kanban Board
+  # Applied
 
 
   ## Running the code

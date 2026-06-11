@@ -195,8 +195,14 @@ export default function App() {
             className="text-sm font-semibold tracking-widest text-foreground/90"
             style={{ fontFamily: "'DM Mono', monospace", letterSpacing: "0.14em" }}
           >
-            INTERNTRACK
+            APPLIED
           </span>
+          <button
+            className="ml-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all hover:opacity-90 active:scale-95"
+            style={{ backgroundColor: "#b4ff57", color: "#08080c" }}
+          >
+            Log in
+          </button>
         </div>
 
         {/* Stats */}
