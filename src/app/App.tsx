@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Plus,
   X,
@@ -10,6 +10,8 @@ import {
   Trophy,
   Calendar,
 } from "lucide-react";
+import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/lib/auth";
 
 type Status = "wishlist" | "applied" | "phone_screen" | "interview" | "offer" | "rejected";
 type WorkType = "Remote" | "Hybrid" | "On-site";
@@ -68,20 +70,19 @@ function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-const SEED: Application[] = [
-  { id: "1",  company: "Stripe",    role: "Software Engineering Intern",  location: "San Francisco, CA", salary: "$60/hr", dateAdded: "2026-04-28", tags: ["Remote"],   status: "applied",      priority: "high"   },
-  { id: "2",  company: "Figma",     role: "Product Design Intern",        location: "New York, NY",      salary: "$55/hr", dateAdded: "2026-05-01", tags: ["On-site"],  status: "interview",    priority: "high"   },
-  { id: "3",  company: "Linear",    role: "Frontend Engineering Intern",  location: "Remote",            salary: "$50/hr", dateAdded: "2026-04-15", tags: ["Remote"],   status: "offer",        priority: "high"   },
-  { id: "4",  company: "Notion",    role: "Product Management Intern",    location: "San Francisco, CA", dateAdded: "2026-05-05",                    tags: ["Hybrid"],   status: "wishlist",     priority: "medium" },
-  { id: "5",  company: "Vercel",    role: "Developer Relations Intern",   location: "Remote",            salary: "$45/hr", dateAdded: "2026-04-20", tags: ["Remote"],   status: "applied",      priority: "medium" },
-  { id: "6",  company: "Airbnb",    role: "Data Science Intern",          location: "San Francisco, CA", salary: "$58/hr", dateAdded: "2026-04-10", tags: ["Hybrid"],   status: "rejected"                         },
-  { id: "7",  company: "Arc",       role: "Growth Intern",                location: "New York, NY",      salary: "$48/hr", dateAdded: "2026-05-08", tags: ["On-site"],  status: "phone_screen", priority: "high"   },
-  { id: "8",  company: "GitHub",    role: "Backend Engineering Intern",   location: "Remote",            salary: "$52/hr", dateAdded: "2026-04-25", tags: ["Remote"],   status: "wishlist",     priority: "medium" },
-  { id: "9",  company: "Dropbox",   role: "Design Intern",                location: "San Francisco, CA", salary: "$50/hr", dateAdded: "2026-04-30", tags: ["Hybrid"],   status: "applied"                          },
-  { id: "10", company: "Loom",      role: "iOS Engineering Intern",       location: "San Francisco, CA",               dateAdded: "2026-05-10",   tags: ["On-site"],  status: "phone_screen"                     },
-  { id: "11", company: "Retool",    role: "Software Engineering Intern",  location: "San Francisco, CA", salary: "$55/hr", dateAdded: "2026-05-12", tags: ["Hybrid"],   status: "wishlist",     priority: "medium" },
-  { id: "12", company: "Planetscale", role: "Database Engineering Intern", location: "Remote",           salary: "$47/hr", dateAdded: "2026-05-02", tags: ["Remote"],   status: "applied"                          },
-];
+function fromRow(row: Record<string, unknown>): Application {
+  return {
+    id: row.id as string,
+    company: row.company as string,
+    role: row.role as string,
+    location: row.location as string,
+    salary: (row.salary as string | null) ?? undefined,
+    dateAdded: row.date_added as string,
+    tags: row.tags as WorkType[],
+    status: row.status as Status,
+    priority: (row.priority as Priority | null) ?? undefined,
+  };
+}
 
 const EMPTY_FORM = {
   company: "",
@@ -93,13 +94,26 @@ const EMPTY_FORM = {
 };
 
 export default function App() {
-  const [apps, setApps] = useState<Application[]>(SEED);
+  const { user, signOut } = useAuth();
+  const [apps, setApps] = useState<Application[]>([]);
+  const [loadingApps, setLoadingApps] = useState(true);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dropCol, setDropCol] = useState<Status | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalDefault, setModalDefault] = useState<Status>("wishlist");
   const [form, setForm] = useState(EMPTY_FORM);
   const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    supabase
+      .from("applications")
+      .select("*")
+      .then(({ data, error }) => {
+        if (error) console.error("Failed to load applications:", error.message);
+        else setApps((data ?? []).map(fromRow));
+        setLoadingApps(false);
+      });
+  }, []);
 
   const totalApplied   = apps.filter((a) => a.status !== "wishlist").length;
   const activeCount    = apps.filter((a) => a.status === "interview" || a.status === "phone_screen").length;
@@ -118,27 +132,33 @@ export default function App() {
     setModalOpen(true);
   }
 
-  function submitForm() {
+  async function submitForm() {
     if (!form.company.trim() || !form.role.trim()) return;
-    setApps((prev) => [
-      ...prev,
-      {
-        id: Date.now().toString(),
-        company: form.company.trim(),
-        role: form.role.trim(),
-        location: form.location.trim(),
-        salary: form.salary.trim() || undefined,
-        dateAdded: new Date().toISOString().split("T")[0],
-        tags: form.tags,
-        status: form.status,
-      },
-    ]);
+    const newRow = {
+      user_id: user!.id,
+      company: form.company.trim(),
+      role: form.role.trim(),
+      location: form.location.trim(),
+      salary: form.salary.trim() || null,
+      date_added: new Date().toISOString().split("T")[0],
+      tags: form.tags,
+      status: form.status,
+    };
+    const { data, error } = await supabase
+      .from("applications")
+      .insert(newRow)
+      .select()
+      .single();
+    if (error) { console.error("Failed to add application:", error.message); return; }
+    setApps((prev) => [...prev, fromRow(data)]);
     setModalOpen(false);
     setForm(EMPTY_FORM);
   }
 
-  function removeApp(id: string) {
+  async function removeApp(id: string) {
     setApps((prev) => prev.filter((a) => a.id !== id));
+    const { error } = await supabase.from("applications").delete().eq("id", id);
+    if (error) console.error("Failed to delete application:", error.message);
   }
 
   function handleDragStart(id: string) {
@@ -155,10 +175,15 @@ export default function App() {
     setDropCol(colId);
   }
 
-  function handleDrop(e: React.DragEvent, colId: Status) {
+  async function handleDrop(e: React.DragEvent, colId: Status) {
     e.preventDefault();
     if (dragId) {
       setApps((prev) => prev.map((a) => (a.id === dragId ? { ...a, status: colId } : a)));
+      const { error } = await supabase
+        .from("applications")
+        .update({ status: colId })
+        .eq("id", dragId);
+      if (error) console.error("Failed to update status:", error.message);
     }
     setDragId(null);
     setDropCol(null);
@@ -171,6 +196,17 @@ export default function App() {
         ? f.tags.filter((t) => t !== tag)
         : [...f.tags, tag],
     }));
+  }
+
+  if (loadingApps) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div
+          className="w-5 h-5 rounded-full border-2 animate-spin"
+          style={{ borderColor: "#b4ff57", borderTopColor: "transparent" }}
+        />
+      </div>
+    );
   }
 
   return (
@@ -197,12 +233,6 @@ export default function App() {
           >
             APPLIED
           </span>
-          <button
-            className="ml-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all hover:opacity-90 active:scale-95"
-            style={{ backgroundColor: "#b4ff57", color: "#08080c" }}
-          >
-            Log in
-          </button>
         </div>
 
         {/* Stats */}
@@ -214,6 +244,18 @@ export default function App() {
 
         {/* Actions */}
         <div className="flex items-center gap-2.5">
+          <span
+            className="hidden md:block text-xs text-muted-foreground"
+            style={{ fontFamily: "'DM Mono', monospace" }}
+          >
+            {user?.email}
+          </span>
+          <button
+            onClick={signOut}
+            className="px-3 py-2 rounded-lg text-xs font-medium border border-border text-muted-foreground hover:text-foreground hover:border-white/15 transition-all"
+          >
+            Sign out
+          </button>
           <div className="relative">
             <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input
