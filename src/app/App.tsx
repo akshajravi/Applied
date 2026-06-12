@@ -103,17 +103,56 @@ export default function App() {
   const [modalDefault, setModalDefault] = useState<Status>("wishlist");
   const [form, setForm] = useState(EMPTY_FORM);
   const [search, setSearch] = useState("");
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; appId: string } | null>(null);
+  const [editApp, setEditApp] = useState<Application | null>(null);
+  const [editForm, setEditForm] = useState(EMPTY_FORM);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  function showError(msg: string) {
+    setErrorMsg(msg);
+    setTimeout(() => setErrorMsg(null), 4000);
+  }
 
   useEffect(() => {
+    if (!user) {
+      setApps([]);
+      setLoadingApps(false);
+      return;
+    }
+    setLoadingApps(true);
     supabase
       .from("applications")
       .select("*")
       .then(({ data, error }) => {
-        if (error) console.error("Failed to load applications:", error.message);
-        else setApps((data ?? []).map(fromRow));
+        if (error) {
+          console.error("Failed to load applications:", error);
+          showError("Couldn't load your applications. Please refresh.");
+        } else {
+          setApps((data ?? []).map(fromRow));
+        }
         setLoadingApps(false);
       });
-  }, []);
+  }, [user]);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const dismiss = () => setContextMenu(null);
+    document.addEventListener("click", dismiss);
+    return () => document.removeEventListener("click", dismiss);
+  }, [contextMenu]);
+
+  useEffect(() => {
+    if (editApp) {
+      setEditForm({
+        company: editApp.company,
+        role: editApp.role,
+        location: editApp.location,
+        salary: editApp.salary?.replace(/^\$/, "") ?? "",
+        tags: editApp.tags,
+        status: editApp.status,
+      });
+    }
+  }, [editApp]);
 
   const totalApplied   = apps.filter((a) => a.status !== "wishlist").length;
   const activeCount    = apps.filter((a) => a.status === "interview" || a.status === "phone_screen").length;
@@ -139,7 +178,7 @@ export default function App() {
       company: form.company.trim(),
       role: form.role.trim(),
       location: form.location.trim(),
-      salary: form.salary.trim() || null,
+      salary: form.salary.trim() ? `$${form.salary.trim()}` : null,
       date_added: new Date().toISOString().split("T")[0],
       tags: form.tags,
       status: form.status,
@@ -149,16 +188,36 @@ export default function App() {
       .insert(newRow)
       .select()
       .single();
-    if (error) { console.error("Failed to add application:", error.message); return; }
+    if (error) {
+      console.error("Failed to add application:", error);
+      showError("Couldn't save the application. Please try again.");
+      return;
+    }
     setApps((prev) => [...prev, fromRow(data)]);
     setModalOpen(false);
     setForm(EMPTY_FORM);
   }
 
   async function removeApp(id: string) {
+    const snapshot = apps.find((a) => a.id === id);
     setApps((prev) => prev.filter((a) => a.id !== id));
     const { error } = await supabase.from("applications").delete().eq("id", id);
-    if (error) console.error("Failed to delete application:", error.message);
+    if (error) {
+      console.error("Failed to delete application:", error);
+      if (snapshot) setApps((prev) => [...prev, snapshot]);
+      showError("Couldn't remove the application. Please try again.");
+    }
+  }
+
+  async function updateApp(id: string, patch: Partial<Omit<Application, "id" | "dateAdded">>) {
+    const snapshot = apps.find((a) => a.id === id);
+    setApps((prev) => prev.map((a) => (a.id === id ? { ...a, ...patch } : a)));
+    const { error } = await supabase.from("applications").update(patch).eq("id", id);
+    if (error) {
+      console.error("Failed to update application:", error);
+      if (snapshot) setApps((prev) => prev.map((a) => (a.id === id ? snapshot : a)));
+      showError("Couldn't save changes. Please try again.");
+    }
   }
 
   function handleDragStart(id: string) {
@@ -178,12 +237,17 @@ export default function App() {
   async function handleDrop(e: React.DragEvent, colId: Status) {
     e.preventDefault();
     if (dragId) {
+      const snapshot = apps.find((a) => a.id === dragId);
       setApps((prev) => prev.map((a) => (a.id === dragId ? { ...a, status: colId } : a)));
       const { error } = await supabase
         .from("applications")
         .update({ status: colId })
         .eq("id", dragId);
-      if (error) console.error("Failed to update status:", error.message);
+      if (error) {
+        console.error("Failed to update status:", error);
+        if (snapshot) setApps((prev) => prev.map((a) => (a.id === dragId ? snapshot : a)));
+        showError("Couldn't move the card. Please try again.");
+      }
     }
     setDragId(null);
     setDropCol(null);
@@ -196,6 +260,28 @@ export default function App() {
         ? f.tags.filter((t) => t !== tag)
         : [...f.tags, tag],
     }));
+  }
+
+  function toggleEditWorkType(tag: WorkType) {
+    setEditForm((f) => ({
+      ...f,
+      tags: f.tags.includes(tag)
+        ? f.tags.filter((t) => t !== tag)
+        : [...f.tags, tag],
+    }));
+  }
+
+  async function submitEditForm() {
+    if (!editApp || !editForm.company.trim() || !editForm.role.trim()) return;
+    await updateApp(editApp.id, {
+      company: editForm.company.trim(),
+      role: editForm.role.trim(),
+      location: editForm.location.trim(),
+      salary: editForm.salary.trim() ? `$${editForm.salary.trim()}` : undefined,
+      tags: editForm.tags,
+      status: editForm.status,
+    });
+    setEditApp(null);
   }
 
   if (loadingApps) {
@@ -346,6 +432,7 @@ export default function App() {
                       onDragStart={() => handleDragStart(app.id)}
                       onDragEnd={handleDragEnd}
                       onRemove={() => removeApp(app.id)}
+                      onContextMenu={(e, id) => setContextMenu({ x: e.clientX, y: e.clientY, appId: id })}
                     />
                   ))}
 
@@ -368,6 +455,174 @@ export default function App() {
           })}
         </div>
       </div>
+
+      {/* ── Context Menu ──────────────────────────────── */}
+      {contextMenu && (
+        <div
+          className="fixed z-50 rounded-lg border border-white/10 py-1 shadow-xl"
+          style={{ top: contextMenu.y, left: contextMenu.x, backgroundColor: "#1a1a2e", minWidth: "140px" }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            onClick={() => {
+              const target = apps.find((a) => a.id === contextMenu.appId);
+              if (target) setEditApp(target);
+              setContextMenu(null);
+            }}
+            className="w-full text-left px-4 py-2 text-sm text-foreground hover:bg-white/10 transition-colors"
+          >
+            Edit details
+          </button>
+          <button
+            onClick={() => {
+              removeApp(contextMenu.appId);
+              setContextMenu(null);
+            }}
+            className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-white/10 transition-colors"
+          >
+            Remove
+          </button>
+        </div>
+      )}
+
+      {/* ── Edit Application Modal ─────────────────────── */}
+      {editApp && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ backgroundColor: "rgba(0,0,0,0.7)", backdropFilter: "blur(6px)" }}
+          onClick={(e) => { if (e.target === e.currentTarget) setEditApp(null); }}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-border p-6 shadow-2xl"
+            style={{ backgroundColor: "#111118" }}
+          >
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h2 className="text-base font-semibold text-foreground">Edit Application</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">Update details for this opportunity</p>
+              </div>
+              <button
+                onClick={() => setEditApp(null)}
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-white/5 transition-all"
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Company *">
+                  <input
+                    autoFocus
+                    placeholder="e.g. Stripe"
+                    value={editForm.company}
+                    onChange={(e) => setEditForm((f) => ({ ...f, company: e.target.value }))}
+                    className="w-full bg-muted border border-border rounded-lg px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary transition-all"
+                  />
+                </Field>
+                <Field label="Role *">
+                  <input
+                    placeholder="e.g. SWE Intern"
+                    value={editForm.role}
+                    onChange={(e) => setEditForm((f) => ({ ...f, role: e.target.value }))}
+                    className="w-full bg-muted border border-border rounded-lg px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary transition-all"
+                  />
+                </Field>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Location">
+                  <div className="relative">
+                    <MapPin size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                    <input
+                      placeholder="SF or Remote"
+                      value={editForm.location}
+                      onChange={(e) => setEditForm((f) => ({ ...f, location: e.target.value }))}
+                      className="w-full bg-muted border border-border rounded-lg pl-8 pr-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary transition-all"
+                    />
+                  </div>
+                </Field>
+                <Field label="Salary">
+                  <div className="relative flex items-center">
+                    <span
+                      className="absolute left-3 text-sm text-muted-foreground select-none pointer-events-none"
+                      style={{ fontFamily: "'DM Mono', monospace", fontSize: "13px" }}
+                    >
+                      $
+                    </span>
+                    <input
+                      placeholder="50/hr"
+                      value={editForm.salary}
+                      onChange={(e) => setEditForm((f) => ({ ...f, salary: e.target.value }))}
+                      className="w-full bg-muted border border-border rounded-lg pl-6 pr-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary transition-all"
+                      style={{ fontFamily: "'DM Mono', monospace", fontSize: "13px" }}
+                    />
+                  </div>
+                </Field>
+              </div>
+
+              <Field label="Stage">
+                <div className="grid grid-cols-3 gap-1.5">
+                  {COLUMNS.map((col) => (
+                    <button
+                      key={col.id}
+                      onClick={() => setEditForm((f) => ({ ...f, status: col.id }))}
+                      className="py-1.5 px-2 rounded-lg text-xs font-medium transition-all border"
+                      style={
+                        editForm.status === col.id
+                          ? { backgroundColor: col.dim, borderColor: col.accent, color: col.accent }
+                          : { backgroundColor: "transparent", borderColor: "rgba(255,255,255,0.07)", color: "#6b6b82" }
+                      }
+                    >
+                      {col.label}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+
+              <Field label="Work Type">
+                <div className="flex gap-2">
+                  {(["Remote", "Hybrid", "On-site"] as WorkType[]).map((tag) => {
+                    const active = editForm.tags.includes(tag);
+                    const style = WORK_TYPE_STYLES[tag];
+                    return (
+                      <button
+                        key={tag}
+                        onClick={() => toggleEditWorkType(tag)}
+                        className="flex-1 py-2 rounded-lg text-xs font-medium transition-all border"
+                        style={
+                          active
+                            ? { backgroundColor: style.bg, borderColor: style.color + "50", color: style.color }
+                            : { backgroundColor: "transparent", borderColor: "rgba(255,255,255,0.07)", color: "#6b6b82" }
+                        }
+                      >
+                        {tag}
+                      </button>
+                    );
+                  })}
+                </div>
+              </Field>
+            </div>
+
+            <div className="flex gap-2.5 mt-5">
+              <button
+                onClick={() => setEditApp(null)}
+                className="flex-1 py-2.5 rounded-lg text-sm text-muted-foreground border border-border hover:border-white/15 hover:text-foreground transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitEditForm}
+                disabled={!editForm.company.trim() || !editForm.role.trim()}
+                className="flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:opacity-90 active:scale-[0.99]"
+                style={{ backgroundColor: "#b4ff57", color: "#08080c" }}
+              >
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Add Application Modal ──────────────────────── */}
       {modalOpen && (
@@ -429,13 +684,21 @@ export default function App() {
                   </div>
                 </Field>
                 <Field label="Salary">
-                  <input
-                    placeholder="$50/hr"
-                    value={form.salary}
-                    onChange={(e) => setForm((f) => ({ ...f, salary: e.target.value }))}
-                    className="w-full bg-muted border border-border rounded-lg px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary transition-all"
-                    style={{ fontFamily: "'DM Mono', monospace", fontSize: "13px" }}
-                  />
+                  <div className="relative flex items-center">
+                    <span
+                      className="absolute left-3 text-sm text-muted-foreground select-none pointer-events-none"
+                      style={{ fontFamily: "'DM Mono', monospace", fontSize: "13px" }}
+                    >
+                      $
+                    </span>
+                    <input
+                      placeholder="50/hr"
+                      value={form.salary}
+                      onChange={(e) => setForm((f) => ({ ...f, salary: e.target.value }))}
+                      className="w-full bg-muted border border-border rounded-lg pl-6 pr-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary transition-all"
+                      style={{ fontFamily: "'DM Mono', monospace", fontSize: "13px" }}
+                    />
+                  </div>
                 </Field>
               </div>
 
@@ -502,6 +765,23 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* ── Error Toast ───────────────────────────────── */}
+      {errorMsg && (
+        <div
+          className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2.5 px-4 py-3 rounded-xl border border-red-500/30 shadow-xl"
+          style={{ backgroundColor: "rgba(239,68,68,0.12)", backdropFilter: "blur(12px)" }}
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0" />
+          <span className="text-sm text-red-300">{errorMsg}</span>
+          <button
+            onClick={() => setErrorMsg(null)}
+            className="ml-1 text-red-400/60 hover:text-red-300 transition-colors"
+          >
+            <X size={13} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -556,6 +836,7 @@ function AppCard({
   onDragStart,
   onDragEnd,
   onRemove,
+  onContextMenu,
 }: {
   app: Application;
   colAccent: string;
@@ -563,6 +844,7 @@ function AppCard({
   onDragStart: () => void;
   onDragEnd: () => void;
   onRemove: () => void;
+  onContextMenu: (e: React.MouseEvent, id: string) => void;
 }) {
   const initials = getInitials(app.company);
   const avatarColor = getAvatarColor(app.company);
@@ -572,6 +854,7 @@ function AppCard({
       draggable
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
+      onContextMenu={(e) => { e.preventDefault(); onContextMenu(e, app.id); }}
       className="group relative rounded-xl p-3 border border-border cursor-grab active:cursor-grabbing transition-all duration-150 select-none"
       style={{
         backgroundColor: "#1a1a24",
