@@ -64,10 +64,10 @@ export default function Login() {
             </div>
           ) : (
             <>
-              <h2 className="text-base font-semibold text-foreground mb-1">
+              <h2 className="text-base font-semibold text-foreground mb-1 text-center">
                 {isSignUp ? "Create account" : "Welcome back"}
               </h2>
-              <p className="text-xs text-muted-foreground mb-5">
+              <p className="text-xs text-muted-foreground mb-5 text-center">
                 {isSignUp ? "Start tracking your applications" : "Sign in to your account"}
               </p>
 
@@ -119,7 +119,7 @@ export default function Login() {
                     setIsSignUp(!isSignUp);
                     setError("");
                   }}
-                  className="text-foreground hover:underline"
+                  className="text-xs text-foreground underline p-0"
                 >
                   {isSignUp ? "Sign in" : "Sign up"}
                 </button>
