@@ -51,8 +51,14 @@ export default function Login() {
 
         {/* Card */}
         <div
-          className="rounded-2xl border border-border p-6 shadow-2xl"
-          style={{ backgroundColor: "#111118" }}
+          className="rounded-2xl border border-border p-6"
+          style={{
+            backgroundColor: "#111118",
+            boxShadow: isSignUp
+              ? "0 25px 50px -12px rgba(0,0,0,0.25), 0 0 40px rgba(180,255,87,0.08)"
+              : "0 25px 50px -12px rgba(0,0,0,0.25)",
+            borderTop: isSignUp ? "2px solid #b4ff57" : undefined,
+          }}
         >
           {confirmed ? (
             <div className="text-center py-2">
@@ -67,9 +73,24 @@ export default function Login() {
               <h2 className="text-base font-semibold text-foreground mb-1 text-center">
                 {isSignUp ? "Create account" : "Welcome back"}
               </h2>
-              <p className="text-xs text-muted-foreground mb-5 text-center">
+              <p className={`text-xs text-muted-foreground ${isSignUp ? "mb-3" : "mb-5"} text-center`}>
                 {isSignUp ? "Start tracking your applications" : "Sign in to your account"}
               </p>
+
+              {isSignUp && (
+                <div className="flex flex-col gap-1.5 mb-5">
+                  {[
+                    "Kanban pipeline from wishlist to offer",
+                    "Track salary, location & work type",
+                    "Free forever — no credit card needed",
+                  ].map((feature) => (
+                    <div key={feature} className="flex items-center gap-2">
+                      <span className="text-xs" style={{ color: "#b4ff57" }}>✓</span>
+                      <span className="text-xs text-muted-foreground">{feature}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               <form onSubmit={handleSubmit} className="space-y-3">
                 <div>
