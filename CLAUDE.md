@@ -18,7 +18,7 @@ This is a single-page React app exported from Figma Make. All application logic 
 
 ### Data model
 
-All state is in-memory via `useState` — nothing persists across page refresh. The core type is `Application`:
+State is stored in supabase backend along with user auth The core type is `Application`:
 
 ```ts
 interface Application {

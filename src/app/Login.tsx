@@ -9,6 +9,7 @@ export default function Login() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
+  const [cooldown, setCooldown] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -17,11 +18,18 @@ export default function Login() {
 
     if (isSignUp) {
       const { error } = await supabase.auth.signUp({ email, password });
-      if (error) setError(error.message);
-      else setConfirmed(true);
+      if (error) {
+        setError(error.message);
+        setCooldown(true);
+        setTimeout(() => setCooldown(false), 5000);
+      } else setConfirmed(true);
     } else {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) setError(error.message);
+      if (error) {
+        setError(error.message);
+        setCooldown(true);
+        setTimeout(() => setCooldown(false), 5000);
+      }
     }
 
     setLoading(false);
@@ -121,11 +129,14 @@ export default function Login() {
                   />
                 </div>
 
-                {error && <p className="text-xs text-red-400">{error}</p>}
+                {cooldown
+                  ? <p className="text-xs text-red-400">Please try again later</p>
+                  : error && <p className="text-xs text-red-400">{error}</p>
+                }
 
                 <button
                   type="submit"
-                  disabled={loading}
+                  disabled={loading || cooldown}
                   className="w-full py-2.5 rounded-lg text-sm font-semibold transition-all hover:opacity-90 active:scale-[0.99] disabled:opacity-50"
                   style={{ backgroundColor: "#b4ff57", color: "#08080c" }}
                 >

@@ -9,7 +9,16 @@ import {
   CheckCircle2,
   Trophy,
   Calendar,
+  MoreVertical,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from "@/app/components/ui/dropdown-menu";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
 
@@ -234,21 +243,23 @@ export default function App() {
     setDropCol(colId);
   }
 
+  async function moveApp(id: string, newStatus: Status) {
+    const snapshot = apps.find((a) => a.id === id);
+    setApps((prev) => prev.map((a) => (a.id === id ? { ...a, status: newStatus } : a)));
+    const { error } = await supabase
+      .from("applications")
+      .update({ status: newStatus })
+      .eq("id", id);
+    if (error) {
+      console.error("Failed to update status:", error);
+      if (snapshot) setApps((prev) => prev.map((a) => (a.id === id ? snapshot : a)));
+      showError("Couldn't move the card. Please try again.");
+    }
+  }
+
   async function handleDrop(e: React.DragEvent, colId: Status) {
     e.preventDefault();
-    if (dragId) {
-      const snapshot = apps.find((a) => a.id === dragId);
-      setApps((prev) => prev.map((a) => (a.id === dragId ? { ...a, status: colId } : a)));
-      const { error } = await supabase
-        .from("applications")
-        .update({ status: colId })
-        .eq("id", dragId);
-      if (error) {
-        console.error("Failed to update status:", error);
-        if (snapshot) setApps((prev) => prev.map((a) => (a.id === dragId ? snapshot : a)));
-        showError("Couldn't move the card. Please try again.");
-      }
-    }
+    if (dragId) await moveApp(dragId, colId);
     setDragId(null);
     setDropCol(null);
   }
@@ -432,6 +443,7 @@ export default function App() {
                       onDragStart={() => handleDragStart(app.id)}
                       onDragEnd={handleDragEnd}
                       onRemove={() => removeApp(app.id)}
+                      onMove={(newStatus) => moveApp(app.id, newStatus)}
                       onContextMenu={(e, id) => setContextMenu({ x: e.clientX, y: e.clientY, appId: id })}
                     />
                   ))}
@@ -836,6 +848,7 @@ function AppCard({
   onDragStart,
   onDragEnd,
   onRemove,
+  onMove,
   onContextMenu,
 }: {
   app: Application;
@@ -844,6 +857,7 @@ function AppCard({
   onDragStart: () => void;
   onDragEnd: () => void;
   onRemove: () => void;
+  onMove: (newStatus: Status) => void;
   onContextMenu: (e: React.MouseEvent, id: string) => void;
 }) {
   const initials = getInitials(app.company);
@@ -874,16 +888,50 @@ function AppCard({
         (e.currentTarget as HTMLDivElement).style.borderLeftColor = colAccent;
       }}
     >
-      {/* Remove */}
-      <button
-        onClick={(e) => { e.stopPropagation(); onRemove(); }}
-        className="absolute top-2.5 right-2.5 p-0.5 rounded text-muted-foreground hover:text-foreground transition-all opacity-0 group-hover:opacity-100"
-      >
-        <X size={11} />
-      </button>
+      {/* Card actions */}
+      <div className="absolute top-2 right-2 flex items-center gap-0.5">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              onClick={(e) => e.stopPropagation()}
+              className="p-0.5 rounded text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <MoreVertical size={11} />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            side="bottom"
+            align="end"
+            className="min-w-[140px]"
+            style={{ backgroundColor: "#1a1a24", border: "1px solid rgba(255,255,255,0.1)" }}
+          >
+            <DropdownMenuLabel className="text-xs text-muted-foreground px-2 py-1">Move to</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {COLUMNS.filter((col) => col.id !== app.status).map((col) => (
+              <DropdownMenuItem
+                key={col.id}
+                onClick={(e) => { e.stopPropagation(); onMove(col.id); }}
+                className="flex items-center gap-2 text-xs cursor-pointer"
+              >
+                <span
+                  className="w-2 h-2 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: col.accent }}
+                />
+                {col.label}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <button
+          onClick={(e) => { e.stopPropagation(); onRemove(); }}
+          className="p-0.5 rounded text-muted-foreground hover:text-foreground transition-all opacity-0 group-hover:opacity-100"
+        >
+          <X size={11} />
+        </button>
+      </div>
 
       {/* Company + avatar */}
-      <div className="flex items-center gap-2.5 pr-4">
+      <div className="flex items-center gap-2.5 pr-10">
         <div
           className="w-7 h-7 rounded-lg flex items-center justify-center text-white flex-shrink-0"
           style={{ backgroundColor: avatarColor, fontSize: "10px", fontWeight: 700 }}
