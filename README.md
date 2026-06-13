@@ -8,4 +8,4 @@
 
   Run `npm run dev` to start the development server.
 
-  Live at applied-app.vercel.app
+  Live at [applied-app.vercel.app](https://applied-app.vercel.app/)
